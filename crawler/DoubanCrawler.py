@@ -3,88 +3,113 @@
 import pandas as pd
 import urllib2
 import re
+import io
+import Queue
 import random
 import time
-import json
 import threading
+from threading import Lock
+from bs4 import BeautifulSoup
 
 
 class DBMovieCrawler(threading.Thread):
 
-    scores = None
-    item_ids = None
     crawler_name = "default"
-    start_index = -1
 
-    def __init__(self, item_ids_input, scores_input, start_index, name):
+    def __init__(self, name):
         super(DBMovieCrawler, self).__init__()
-        self.item_ids = item_ids_input
-        self.scores = scores_input
         self.crawler_name = name
-        self.start_index = start_index
 
     @staticmethod
-    def db_html_parse(item_id, score):
-        url = "https://movie.douban.com/subject/%s/comments?sort=new_score" % item_id
-        try:
-            req = urllib2.urlopen(url)
-        except Exception, e:
-            print e
-            return []
-        origin_encode = req.headers['content-type'].split('charset=')[-1]
-        try:
+    def db_html_parse(item_id):
+        base_url = "https://movie.douban.com/subject/%s/comments" % item_id
+        url = "?sort=new_score"
+        comments = []
+        scores = []
+        votes = []
+        has_next = True
+        retry = 0
+        while has_next and retry < 4:
+            try:
+                req = urllib2.urlopen(base_url + url)
+                print (base_url + url)
+                retry = 0
+            except urllib2.HTTPError, e:
+                if e.code == 403:
+                    has_next = False
+                    continue
+            except Exception, e:
+                print "request error"
+                print e
+                retry += 1
+                time.sleep(random.randint(30, 80) / 10.0)
+                continue
+            origin_encode = req.headers['content-type'].split('charset=')[-1]
             html = req.read().decode(origin_encode).encode("utf-8")
-            groups = re.findall("(?<=fetchJSON_comment98vv37464\().*(?=\);)", html)
-            return [json.loads(group, encoding="utf-8") for group in groups]
-        except Exception, e:
-            print e
-            return []
+            soup = BeautifulSoup(html, "html.parser")
+            body_divs = soup.select("div.article")
+            if len(body_divs) > 0:
+                comment_body_divs = body_divs[0].select("div#comments")
+                if len(comment_body_divs) > 0:
+                    comment_body = comment_body_divs[0]
+                    for comment_div in comment_body.select("div.comment-item"):
+                        rating_spans = comment_div.select("span.rating")
+                        if len(rating_spans) < 1:
+                            continue
+                        scores.append(rating_spans[0]["class"])
+                        votes.append(int(comment_div.select("span.votes")[0].text))
+                        comments.append(comment_div.select("div.comment > p.")[0].text)
+                    paginator_divs = body_divs[0].select("div#paginator")
+                    if len(paginator_divs) > 0:
+                        next_divs = paginator_divs[0].select("a.next")
+                        if len(next_divs) > 0:
+                            url = next_divs[0]["href"]
+                        else:
+                            has_next = False
+                    else:
+                        has_next = False
+                else:
+                    has_next = False
+            else:
+                has_next = False
+            time.sleep(random.randint(5, 15) / 10.0)
+        return comments, scores, votes
 
     def run(self):
-        item_ids_to_crawler = self.item_ids[self.start_index:]
-        for item_id in item_ids_to_crawler:
-            print "%s crawler item%d" % (self.crawler_name, self.start_index)
-            # 采集第一个关于各种评论的数量
-            first_page = self.jd_html_parse(item_id, self.scores[0], 0)
-            if len(first_page) < 1:
-                continue
-            page_count = min(
-                first_page[0]["productCommentSummary"]["goodCount"] / 10,
-                first_page[0]["productCommentSummary"]["generalCount"] / 10,
-                first_page[0]["productCommentSummary"]["poorCount"] / 10)
-            page_count = page_count if page_count < 150 else 150
-            comments_storage, scores_storage = [], []
-            for score in self.scores:
-                print "Get score=%d" % score
-                for page_index in range(page_count):  # 12.13 edit
-                    for json_item in self.jd_html_parse(item_id, score, page_index):
-                        try:
-                            for comment in json_item["comments"]:
-                                comment_content = comment["content"]
-                                comment_content = comment_content.strip()
-                                comment_content = comment_content.replace("\n", " ")
-                                comment_content = re.sub(r'\s{2,}', " ", comment_content)
-                                if len(comment_content) < 3:
-                                    continue
-                                comments_storage.append(comment_content)
-                                scores_storage.append(comment["score"])
-                        except Exception, e:
-                            print e
-                    time.sleep(random.randint(5, 10) / 10.0)
-            df = pd.DataFrame({"cmt": comments_storage,
-                               "score": scores_storage})
-            df.to_csv('jd.csv', mode="a", index=False, encoding='utf-8', header=False)
-            print "%s crawler item%d end" % (self.crawler_name, self.start_index)
-            self.start_index += 1
+        while True:
+            item_id = get_resource()
+            if item_id is None:
+                break
+            print "%s crawler item:%s" % (self.crawler_name, item_id)
+            comments, scores, votes = self.db_html_parse(item_id)
+            df = pd.DataFrame({"cmt": comments,
+                               "score": scores,
+                               "vote": votes})
+            df.to_csv('../data/movie_comments.csv', mode="a", index=False, encoding='utf-8', header=False)
+            print "%s crawler item%s end" % (self.crawler_name, item_id)
 
+resource_lock = Lock()
+queue = Queue.Queue()
+
+
+def get_resource():
+    resource_lock.acquire()
+    if queue.empty():
+        resource_lock.release()
+        return None
+    r = queue.get()
+    print "remain: %d" % queue.qsize()
+    resource_lock.release()
+    return r
 
 if __name__ == "__main__":
-    item_ids = ['25755645']
-
-    scores = [1, 2, 3]
-    crawler1 = DBMovieCrawler(item_ids, scores, 0, "db1")
-    # crawler2 = JDCrawler(item_ids[1025:1060], scores, 0, "jd2")
-    # crawler3 = JDCrawler(item_ids[732:1025], scores, 249, "jd3")
+    with io.open("../data/movies_target.csv", "r", encoding="utf-8") as input_file:
+        for line in input_file:
+            groups = re.findall(r"(?<=https://movie\.douban\.com/subject/)[0-9]+(?=/,)", line)
+            queue.put(groups[0])
+    crawler1 = DBMovieCrawler("db1")
+    crawler2 = DBMovieCrawler("db2")
+    crawler3 = DBMovieCrawler("db3")
     crawler1.start()
-    # crawler2.start()
-    # crawler3.start()
+    crawler2.start()
+    crawler3.start()
