@@ -27,6 +27,7 @@ class DBMovieCrawler(threading.Thread):
         comments = []
         scores = []
         votes = []
+        movie_ids = []
         has_next = True
         retry = 0
         while has_next and retry < 4:
@@ -59,6 +60,7 @@ class DBMovieCrawler(threading.Thread):
                         scores.append(rating_spans[0]["class"])
                         votes.append(int(comment_div.select("span.votes")[0].text))
                         comments.append(comment_div.select("div.comment > p.")[0].text)
+                        movie_ids.append(item_id)
                     paginator_divs = body_divs[0].select("div#paginator")
                     if len(paginator_divs) > 0:
                         next_divs = paginator_divs[0].select("a.next")
@@ -73,7 +75,7 @@ class DBMovieCrawler(threading.Thread):
             else:
                 has_next = False
             time.sleep(random.randint(5, 15) / 10.0)
-        return comments, scores, votes
+        return movie_ids, comments, scores, votes
 
     def run(self):
         while True:
@@ -81,10 +83,12 @@ class DBMovieCrawler(threading.Thread):
             if item_id is None:
                 break
             print "%s crawler item:%s" % (self.crawler_name, item_id)
-            comments, scores, votes = self.db_html_parse(item_id)
-            df = pd.DataFrame({"cmt": comments,
-                               "score": scores,
-                               "vote": votes})
+            movie_ids, comments, scores, votes = self.db_html_parse(item_id)
+            df = pd.DataFrame({
+                "id": movie_ids,
+                "cmt": comments,
+                "score": scores,
+                "vote": votes})
             df.to_csv('../data/movie_comments.csv', mode="a", index=False, encoding='utf-8', header=False)
             print "%s crawler item%s end" % (self.crawler_name, item_id)
 
