@@ -28,6 +28,7 @@ class DBMovieCrawler(threading.Thread):
         scores = []
         votes = []
         movie_ids = []
+        data_ids = []
         has_next = True
         retry = 0
         first_page = True
@@ -41,7 +42,7 @@ class DBMovieCrawler(threading.Thread):
                 opener = urllib2.build_opener(proxy_support)
                 opener.addheaders = [('User-Agent', random_user_agent)]
                 # urllib2.install_opener(opener)
-                req = opener.open(base_url + url, timeout=8000)
+                req = opener.open(base_url + url, timeout=4000)
                 print "%s:%s%s" % (self.crawler_name, base_url, url)
                 retry = 0
                 first_page = False
@@ -53,17 +54,21 @@ class DBMovieCrawler(threading.Thread):
                     random_user_agent = random.choice(agents)
                     random_proxy = random.choice(proxies)
                     retry += 1
-            except Exception, e:
-                print "%s:request error" % self.crawler_name
+            except urllib2.URLError, e:
+                print "%s:url error" % self.crawler_name
                 print e
-                if first_page:
-                    print "%s:change proxy ip" % self.crawler_name
+                print "%s:change proxy ip" % self.crawler_name
+                if e.reason.errno != 10060:
+                    print "%s:remove proxy ip" % self.crawler_name
                     proxies.remove(random_proxy)
-                    random_user_agent = random.choice(agents)
-                    random_proxy = random.choice(proxies)
-                else:
-                    retry += 1
-                time.sleep(random.randint(30, 80) / 10.0)
+                random_proxy = random.choice(proxies)
+                continue
+            except Exception, e:
+                print "other error"
+                print e
+                print "%s:remove proxy ip" % self.crawler_name
+                proxies.remove(random_proxy)
+                random_proxy = random.choice(proxies)
                 continue
             origin_encode = req.headers['content-type'].split('charset=')[-1]
             html = req.read().decode(origin_encode).encode("utf-8")
@@ -82,6 +87,7 @@ class DBMovieCrawler(threading.Thread):
                         votes.append(int(comment_div.select("span.votes")[0].text))
                         comments.append(comment_div.select("div.comment > p.")[0].text)
                         movie_ids.append(item_id)
+                        data_ids.append(comment_div["data-cid"])
                     paginator_divs = body_divs[0].select("div#paginator")
                     if len(paginator_divs) > 0:
                         next_divs = paginator_divs[0].select("a.next")
@@ -96,7 +102,7 @@ class DBMovieCrawler(threading.Thread):
             else:
                 has_next = False
             time.sleep(random.randint(5, 15) / 10.0)
-        return movie_ids, comments, scores, votes
+        return movie_ids, data_ids, comments, scores, votes
 
     def run(self):
         while True:
@@ -104,9 +110,10 @@ class DBMovieCrawler(threading.Thread):
             if item_id is None:
                 break
             print "%s crawler item:%s" % (self.crawler_name, item_id)
-            movie_ids, comments, scores, votes = self.db_html_parse(item_id)
+            movie_ids, comment_ids, comments, scores, votes = self.db_html_parse(item_id)
             df = pd.DataFrame({
                 "id": movie_ids,
+                "cmt_id": comment_ids,
                 "cmt": comments,
                 "score": scores,
                 "vote": votes})
@@ -141,8 +148,8 @@ if __name__ == "__main__":
             groups = re.findall(r"(?<=https://movie\.douban\.com/subject/)[0-9]+(?=/,)", line)
             queue.put(groups[0])
     crawler1 = DBMovieCrawler("db1")
-    crawler2 = DBMovieCrawler("db2")
-    crawler3 = DBMovieCrawler("db3")
+    # crawler2 = DBMovieCrawler("db2")
+    # crawler3 = DBMovieCrawler("db3")
     crawler1.start()
-    crawler2.start()
-    crawler3.start()
+    # crawler2.start()
+    # crawler3.start()
