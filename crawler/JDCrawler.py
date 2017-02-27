@@ -218,8 +218,8 @@ if __name__ == "__main__":
 
     scores = [1, 2, 3]
     crawler1 = JDCrawler(item_ids[1060:1095], scores, 0, "jd1")
-    crawler2 = JDCrawler(item_ids[1025:1060], scores, 0, "jd2")
-    crawler3 = JDCrawler(item_ids[732:1025], scores, 249, "jd3")
+    # crawler2 = JDCrawler(item_ids[1025:1060], scores, 0, "jd2")
+    # crawler3 = JDCrawler(item_ids[732:1025], scores, 249, "jd3")
     crawler1.start()
-    crawler2.start()
-    crawler3.start()
+    # crawler2.start()
+    # crawler3.start()

@@ -1,14 +1,13 @@
 # coding:utf-8
 import pandas as pd
 import urllib2
-import re
-import io
 import Queue
 import random
 import time
 import threading
 from threading import Lock
 from bs4 import BeautifulSoup
+import socket
 
 
 class DBMovieCrawler(threading.Thread):
@@ -17,11 +16,12 @@ class DBMovieCrawler(threading.Thread):
 
     def __init__(self, name):
         super(DBMovieCrawler, self).__init__()
+        socket.setdefaulttimeout(16)
         self.crawler_name = name
 
     def db_html_parse(self, item_id):
         random_user_agent = random.choice(agents)
-        random_proxy = random.choice(proxies)
+        random_proxy = get_proxy()
         base_url = "https://movie.douban.com/subject/%s/comments" % item_id
         url = "?sort=new_score"
         comments = []
@@ -31,49 +31,47 @@ class DBMovieCrawler(threading.Thread):
         data_ids = []
         has_next = True
         retry = 0
-        first_page = True
-        while has_next and retry < 4:
+        while has_next:
             try:
-                # 下面是模拟浏览器进行访问
-                # req = urllib2.Request(base_url + url)
-                # req.add_header("User-Agent", random_user_agent)
-                # 下面是使用ip代理进行访问
                 proxy_support = urllib2.ProxyHandler({"https": random_proxy})
                 opener = urllib2.build_opener(proxy_support)
                 opener.addheaders = [('User-Agent', random_user_agent)]
                 # urllib2.install_opener(opener)
-                req = opener.open(base_url + url, timeout=4000)
-                print "%s:%s%s" % (self.crawler_name, base_url, url)
+                start_time = time.time()
+                print "%s:start open web page..." % self.crawler_name
+                req = opener.open(base_url + url, None, 16)
+                print "%s load complete:%s%s" % (self.crawler_name, base_url, url)
+                print time.time() - start_time
+                origin_encode = req.headers['content-type'].split('charset=')[-1]
+                html = req.read().decode(origin_encode).encode("utf-8")
+                if html.strip() == "":
+                    raise Exception("get empty html")
+                soup = BeautifulSoup(html, "html.parser")
+                if len(soup.select("div#db-nav-movie")) < 1:
+                    raise Exception("enter fake douban website")
                 retry = 0
-                first_page = False
+                add_proxy_info(random_proxy, True)
             except urllib2.HTTPError, e:
-                if e.code == 403 and retry >= 3:
+                if e.code == 403 and retry >= 2:
+                    print "%s get the end:%s%s" % (self.crawler_name, base_url, url)
                     has_next = False
-                    continue
                 else:
                     random_user_agent = random.choice(agents)
-                    random_proxy = random.choice(proxies)
+                    random_proxy = get_proxy()
                     retry += 1
+                continue
             except urllib2.URLError, e:
-                print "%s:url error" % self.crawler_name
-                print e
+                print "%s:url error %s" % (self.crawler_name, str(e))
                 print "%s:change proxy ip" % self.crawler_name
-                if e.reason.errno != 10060:
-                    print "%s:remove proxy ip" % self.crawler_name
-                    proxies.remove(random_proxy)
-                random_proxy = random.choice(proxies)
+                if e.reason.errno != 10060 and e.reason.errno != 110:
+                    add_proxy_info(random_proxy, False)
+                    random_proxy = get_proxy()
                 continue
             except Exception, e:
-                print "other error"
-                print e
-                print "%s:remove proxy ip" % self.crawler_name
-                proxies.remove(random_proxy)
-                random_proxy = random.choice(proxies)
+                print "%s:other error %s" % (self.crawler_name, str(e))
+                add_proxy_info(random_proxy, False)
+                random_proxy = get_proxy()
                 continue
-            origin_encode = req.headers['content-type'].split('charset=')[-1]
-            html = req.read().decode(origin_encode).encode("utf-8")
-            print "load complete"
-            soup = BeautifulSoup(html, "html.parser")
             body_divs = soup.select("div.article")
             if len(body_divs) > 0:
                 comment_body_divs = body_divs[0].select("div#comments")
@@ -83,9 +81,9 @@ class DBMovieCrawler(threading.Thread):
                         rating_spans = comment_div.select("span.rating")
                         if len(rating_spans) < 1:
                             continue
-                        scores.append(rating_spans[0]["class"])
+                        scores.append(rating_spans[0]["class"][0][-2:-1])
                         votes.append(int(comment_div.select("span.votes")[0].text))
-                        comments.append(comment_div.select("div.comment > p.")[0].text)
+                        comments.append(comment_div.select("div.comment > p.")[0].text.strip())
                         movie_ids.append(item_id)
                         data_ids.append(comment_div["data-cid"])
                     paginator_divs = body_divs[0].select("div#paginator")
@@ -101,7 +99,7 @@ class DBMovieCrawler(threading.Thread):
                     has_next = False
             else:
                 has_next = False
-            time.sleep(random.randint(5, 15) / 10.0)
+            time.sleep(random.randint(2, 8) / 10.0)
         return movie_ids, data_ids, comments, scores, votes
 
     def run(self):
@@ -118,38 +116,94 @@ class DBMovieCrawler(threading.Thread):
                 "score": scores,
                 "vote": votes})
             df.to_csv('../data/movie_comments.csv', mode="a", index=False, encoding='utf-8', header=False)
+            with open("douban_complete.csv", "a") as complete_file:
+                complete_file.write("%s,%d\n" % (item_id, len(movie_ids)))
+            complete_set.add(item_id)
             print "%s crawler item%s end with %d items" % (self.crawler_name, item_id, len(movie_ids))
+            print "proxy pool size: %d" % len(proxies)
 
-resource_lock = Lock()
+
+url_pool_lock = Lock()
 queue = Queue.Queue()
-proxies = []
+proxies = {}
 agents = []
+complete_set = set()
+
+
+# 管理代理IP
+class ProxyManager(threading.Thread):
+
+    sleep_time = 120
+
+    def __init__(self, sleep_time):
+        super(ProxyManager, self).__init__()
+        self.sleep_time = sleep_time
+
+    def run(self):
+        while queue.qsize() > 0:
+            time.sleep(self.sleep_time)
+            if len(proxies) > 200:
+                pop_key = []
+                for key, data in proxies.items():
+                    if data["total"] > 100 and (data["catch"] * 1.0 / data["total"]) < 0.03:
+                        pop_key.append(key)
+                for key in pop_key:
+                    proxies.pop(key)
+                print "========================================"
+                print "proxy remain: %d" % len(proxies)
+                print "========================================"
+            else:
+                print "========================================"
+                print "too less proxies manager exit"
+                print "========================================"
+                break
+
+
+def add_proxy_info(key, is_success):
+    try:
+        if is_success:
+            proxies[key]["catch"] += 1
+        proxies[key]["total"] += 1
+    except Exception, e:
+        print e
+        print "add info to deleted proxy"
+
+
+def get_proxy():
+    return random.choice(proxies.keys())
 
 
 def get_resource():
-    resource_lock.acquire()
+    url_pool_lock.acquire()
     if queue.empty():
-        resource_lock.release()
+        url_pool_lock.release()
         return None
     r = queue.get()
-    print "remain: %d" % queue.qsize()
-    resource_lock.release()
+    print "url remain: %d" % queue.qsize()
+    url_pool_lock.release()
     return r
 
 if __name__ == "__main__":
+    unique_proxies = set()
     with open("proxy_ip", "r") as proxy_file:
         for line in proxy_file:
-            proxies.append(line.strip())
+            unique_proxies.add(line.strip())
+    for proxy_address in unique_proxies:
+        proxies[proxy_address] = {"total": 0, "catch": 0}
     with open("user_agent", "r") as agent_file:
         for line in agent_file:
             agents.append(line.strip())
-    with io.open("../data/movies_target.csv", "r", encoding="utf-8") as input_file:
-        for line in input_file:
-            groups = re.findall(r"(?<=https://movie\.douban\.com/subject/)[0-9]+(?=/,)", line)
-            queue.put(groups[0])
-    crawler1 = DBMovieCrawler("db1")
-    # crawler2 = DBMovieCrawler("db2")
-    # crawler3 = DBMovieCrawler("db3")
-    crawler1.start()
-    # crawler2.start()
-    # crawler3.start()
+    with open("douban_complete.csv", "r") as end_file:
+        for line in end_file:
+            complete_set.add(int(line.split(",")[0]))
+    all_items = pd.read_csv("../data/movies_target.csv", encoding="utf-8")
+    for m_id in all_items.get("id"):
+        if m_id not in complete_set:
+            queue.put(m_id)
+    for i in range(88):
+        crawler = DBMovieCrawler("db" + str(i))
+        crawler.start()
+    ProxyManager(120).start()
+
+
+
