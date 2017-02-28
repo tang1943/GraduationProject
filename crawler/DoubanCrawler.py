@@ -200,7 +200,7 @@ if __name__ == "__main__":
     for m_id in all_items.get("id"):
         if m_id not in complete_set:
             queue.put(m_id)
-    for i in range(88):
+    for i in range(108):
         crawler = DBMovieCrawler("db" + str(i))
         crawler.start()
     ProxyManager(120).start()
