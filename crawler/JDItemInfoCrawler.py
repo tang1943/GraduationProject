@@ -1,106 +1,74 @@
 # coding:utf-8
+"""
+爬去不同类目下的京东商品ID
+"""
 import pandas as pd
 import urllib2
 import Queue
 import random
 import time
+import re
+import json
 import threading
 from threading import Lock
 from bs4 import BeautifulSoup
 import socket
 
 
-class DBMovieCrawler(threading.Thread):
+class JDItemInfoCrawler(threading.Thread):
 
     crawler_name = "default"
 
     def __init__(self, name):
-        super(DBMovieCrawler, self).__init__()
+        super(JDItemInfoCrawler, self).__init__()
         socket.setdefaulttimeout(16)
         self.crawler_name = name
 
     def db_html_parse(self, item_id):
-        random_user_agent = random.choice(agents)
-        random_proxy = get_proxy()
-        base_url = "https://movie.douban.com/subject/%s/comments" % item_id
-        url = "?sort=new_score"
-        comments = []
-        scores = []
-        votes = []
-        movie_ids = []
-        data_ids = []
-        has_next = True
-        retry = 0
-        while has_next:
+        url = "https://sclub.jd.com/comment/productPageComments.action?productId=%s&score=0&sortType=3&page=0" \
+              "&pageSize=10&callback=fetchJSON_comment98vv37464" % item_id
+        while True:
             try:
+                random_user_agent = random.choice(agents)
+                random_proxy = get_proxy()
                 proxy_support = urllib2.ProxyHandler({"https": random_proxy})
                 opener = urllib2.build_opener(proxy_support)
                 opener.addheaders = [('User-Agent', random_user_agent)]
-                # urllib2.install_opener(opener)
                 start_time = time.time()
                 print "%s:start open web page..." % self.crawler_name
-                req = opener.open(base_url + url, None, 16)
-                print "%s load complete:%s%s" % (self.crawler_name, base_url, url)
+                req = opener.open(url, None, 16)
+                print "%s load complete:%s" % (self.crawler_name, url)
                 print time.time() - start_time
                 origin_encode = req.headers['content-type'].split('charset=')[-1]
                 html = req.read().decode(origin_encode).encode("utf-8")
                 if html.strip() == "":
                     raise Exception("get empty html")
                 soup = BeautifulSoup(html, "html.parser")
+
                 if len(soup.select("div#db-nav-movie")) < 1:
                     raise Exception("enter fake douban website")
-                retry = 0
                 add_proxy_info(random_proxy, True)
-            except urllib2.HTTPError, e:
-                if e.code == 403 and retry >= 2:
-                    print "%s get the end:%s%s" % (self.crawler_name, base_url, url)
-                    has_next = False
+                groups = re.findall("(?<=fetchJSON_comment98vv37464\().*(?=\);)", html)
+                if len(groups) > 0:
+                    o = json.loads(groups[0], encoding="utf-8")
+                    return "%d,%d,%d,%d,%d,%d" % (o["maxPage"], o["productCommentSummary"]["afterCount"],
+                                                  o["productCommentSummary"]["commentCount"],
+                                                  o["productCommentSummary"]["goodCount"],
+                                                  o["productCommentSummary"]["generalCount"],
+                                                  o["productCommentSummary"]["poorCount"])
                 else:
-                    random_user_agent = random.choice(agents)
-                    random_proxy = get_proxy()
-                    retry += 1
-                continue
+                    return None
+            except urllib2.HTTPError, e:
+                    print "%s get the http error:%s" % (self.crawler_name, url)
+                    print e
             except urllib2.URLError, e:
                 print "%s:url error %s" % (self.crawler_name, str(e))
                 print "%s:change proxy ip" % self.crawler_name
                 if e.reason.errno != 10060 and e.reason.errno != 110:
                     add_proxy_info(random_proxy, False)
-                    random_proxy = get_proxy()
-                continue
             except Exception, e:
                 print "%s:other error %s" % (self.crawler_name, str(e))
                 add_proxy_info(random_proxy, False)
-                random_proxy = get_proxy()
-                continue
-            body_divs = soup.select("div.article")
-            if len(body_divs) > 0:
-                comment_body_divs = body_divs[0].select("div#comments")
-                if len(comment_body_divs) > 0:
-                    comment_body = comment_body_divs[0]
-                    for comment_div in comment_body.select("div.comment-item"):
-                        rating_spans = comment_div.select("span.rating")
-                        if len(rating_spans) < 1:
-                            continue
-                        scores.append(rating_spans[0]["class"][0][-2:-1])
-                        votes.append(int(comment_div.select("span.votes")[0].text))
-                        comments.append(comment_div.select("div.comment > p.")[0].text.strip())
-                        movie_ids.append(item_id)
-                        data_ids.append(comment_div["data-cid"])
-                    paginator_divs = body_divs[0].select("div#paginator")
-                    if len(paginator_divs) > 0:
-                        next_divs = paginator_divs[0].select("a.next")
-                        if len(next_divs) > 0:
-                            url = next_divs[0]["href"]
-                        else:
-                            has_next = False
-                    else:
-                        has_next = False
-                else:
-                    has_next = False
-            else:
-                has_next = False
-            time.sleep(random.randint(2, 8) / 10.0)
-        return movie_ids, data_ids, comments, scores, votes
 
     def run(self):
         while True:
@@ -185,16 +153,17 @@ def get_resource():
     return r
 
 
-def save_comments(df):
+def save_comments(str):
     comment_save_lock.acquire()
-    df.to_csv('../data/movie_comments.csv', mode="a", index=False, encoding='utf-8', header=False)
+    with open("jd_target.csv", "a") as f:
+        f.write(str)
     comment_save_lock.release()
 
 
-def save_complete_record(item_id, size):
+def save_complete_record(complete_url):
     task_end_save_lock.acquire()
-    with open("douban_complete.csv", "a") as complete_file:
-        complete_file.write("%s,%d\n" % (item_id, size))
+    with open("jd_url_complete.csv", "a") as complete_file:
+        complete_file.write("%s\n" % complete_url)
     task_end_save_lock.release()
 
 if __name__ == "__main__":
@@ -207,17 +176,17 @@ if __name__ == "__main__":
     with open("user_agent", "r") as agent_file:
         for line in agent_file:
             agents.append(line.strip())
-    with open("douban_complete.csv", "r") as end_file:
+    with open("jd_url_complete.csv", "r") as end_file:
         for line in end_file:
             complete_set.add(int(line.split(",")[0]))
-    all_items = pd.read_csv("../data/movies_target.csv", encoding="utf-8")
-    for m_id in all_items.get("id"):
-        if m_id not in complete_set:
-            queue.put(m_id)
-    for i in range(512):
-        crawler = DBMovieCrawler("db" + str(i))
+    all_items = open("../data/crawler/JDCategoryURL.csv", "r")
+    for u in all_items:
+        if u not in complete_set:
+            queue.put(u)
+    for i in range(32):
+        crawler = JDItemInfoCrawler("jd" + str(i))
         crawler.start()
-    ProxyManager(120).start()
+    ProxyManager(60).start()
 
 
 

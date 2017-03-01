@@ -3069,61 +3069,41 @@ html_str2 = '''
 </body>
 </html>
 <!--allsort_ok-->'''
+
 import re
 import json
 re.sub(r'\s{2,}',"item","haha  haha")
 import urllib2
 from bs4 import BeautifulSoup
 
-url = "https://sclub.jd.com/comment/productPageComments.action?productId=%s&score=0&sortType=3&page=0&pageSize=10&callback=fetchJSON_comment98vv37464"
-def get_index(i_id):
-    try:
-        req = urllib2.urlopen(url % i_id)
-    except Exception, e:
-        print e
-        return []
-    origin_encode = req.headers['content-type'].split('charset=')[-1]
-    try:
-        html = req.read().decode(origin_encode).encode("utf-8")
-    except Exception, e:
-        print e
-    groups = re.findall("(?<=fetchJSON_comment98vv37464\().*(?=\);)", html)
-    if len(groups) > 0:
-        o = json.loads(groups[0], encoding="utf-8")
-        return "%d,%d,%d,%d,%d,%d" % (o["maxPage"], o["productCommentSummary"]["afterCount"],
-                                o["productCommentSummary"]["commentCount"],
-                                o["productCommentSummary"]["goodCount"],
-                                o["productCommentSummary"]["generalCount"],
-                                o["productCommentSummary"]["poorCount"])
-
-# groups = re.findall(r'(?<=<a href="//)list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+(&\\S*=\\S*)*(?=" class="cate_detail_con_lk")', html_str)
-groups = re.findall(r'list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+', html_str2)
-start = False
-u_set = set()
-with open("jd_target.csv", "r") as f:
-    for line in f:
-        u_set.add(line)
-for group in set(groups):
-    print group
-    req = urllib2.urlopen("http://%s&page=1&sort=sort_commentcount_desc" % group)
-    origin_encode = req.headers['content-type'].split('charset=')[-1]
-    try:
-        html = req.read().decode(origin_encode).encode("utf-8")
-        soup = BeautifulSoup(html)
-        item_list = soup.select("#plist > ul > li")
-        pre_str = ""
-        for item in item_list:
-            href = item.select("div > div.p-img > a")[0]["href"]
-            urls = re.findall(r"(?<=jd\.com/)[0-9]+(?=\.html)", href)
-            if len(urls) > 0:
-                id_str = get_index(urls[0])
-                if id_str != pre_str:
-                    s = "%s,%s\n" % (urls[0], id_str)
-                    if s in u_set:
-                        break
-                    with open("jd_target.csv", "a") as f:
-                        f.write(s)
-                    print s
-                    pre_str = id_str
-    except Exception, e:
-        print e
+# 寻找类目url
+# groups = re.findall(r'list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+', html_str2)
+# for group in set(groups):
+#     print group
+fail = []
+with open("../data/crawler/JDCategoryURL.csv", "r") as jd_c_file:
+    for c_url in jd_c_file:
+        c_url = c_url.strip()
+        print c_url
+        url = "http://%s&page=1&sort=sort_commentcount_desc" % c_url
+        try:
+            req = urllib2.urlopen(url)
+            origin_encode = req.headers['content-type'].split('charset=')[-1]
+            html = req.read().decode(origin_encode).encode("utf-8")
+            soup = BeautifulSoup(html, "lxml")
+            item_list = soup.select("#plist > ul > li")
+            lines = []
+            for item in item_list:
+                href = item.select("div > div.p-img > a")[0]["href"]
+                urls = re.findall(r"(?<=jd\.com/)[0-9]+(?=\.html)", href)
+                if len(urls) > 0:
+                    lines.append("%s,%s\n" % (c_url.split("cat=")[1].replace(",", "-"), urls[0]))
+            with open("../data/crawler/JDItemId.csv", "a") as jd_i_file:
+                for line in lines:
+                    jd_i_file.write(line)
+        except Exception, e:
+            fail.append(c_url)
+            print e
+print "fail:"
+for f_line in fail:
+    print f_line
