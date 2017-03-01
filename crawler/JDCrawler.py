@@ -55,25 +55,43 @@ class JDCrawler(threading.Thread):
                 first_page[0]["productCommentSummary"]["poorCount"] / 10)
             page_count = page_count if page_count < 150 else 150
             comments_storage, scores_storage = [], []
+            useful_vote_storage, useless_vote_storage = [], []
+            reply_count_storage, image_count_storage = [], []
+            user_level_storage, father_ids, ids = [], [], []
             for score in self.scores:
                 print "Get score=%d" % score
                 for page_index in range(page_count):  # 12.13 edit
                     for json_item in self.jd_html_parse(item_id, score, page_index):
                         try:
                             for comment in json_item["comments"]:
+                                father_ids.append(item_id)
+                                ids.append(comment["id"])
                                 comment_content = comment["content"]
                                 comment_content = comment_content.strip()
-                                comment_content = comment_content.replace("\n", " ")
-                                comment_content = re.sub(r'\s{2,}', " ", comment_content)
-                                if len(comment_content) < 3:
-                                    continue
                                 comments_storage.append(comment_content)
                                 scores_storage.append(comment["score"])
+                                useful_vote_storage.append(comment["usefulVoteCount"])
+                                useless_vote_storage.append(comment["uselessVoteCount"])
+                                reply_count_storage.append(comment["replyCount"])
+                                if "imageCount" in comment:
+                                    image_count_storage.append(comment["imageCount"])
+                                else:
+                                    image_count_storage.append(0)
+                                user_level_storage.append(comment["userLevelId"])
                         except Exception, e:
                             print e
                     time.sleep(random.randint(5, 10) / 10.0)
-            df = pd.DataFrame({"cmt": comments_storage,
-                               "score": scores_storage})
+            df = pd.DataFrame({
+                "cmt": comments_storage,
+                "score": scores_storage,
+                "useful_vote": useful_vote_storage,
+                "useless_vote": useless_vote_storage,
+                "reply": reply_count_storage,
+                "image": image_count_storage,
+                "level": user_level_storage,
+                "id": ids,
+                "item_id": father_ids
+            })
             df.to_csv('jd.csv', mode="a", index=False, encoding='utf-8', header=False)
             print "%s crawler item%d end" % (self.crawler_name, self.start_index)
             self.start_index += 1
@@ -217,9 +235,13 @@ if __name__ == "__main__":
                 '963264', '1696739174', '1189537273', '231904', '10740425968', '1032316189', '3274923', '3241147']
 
     scores = [1, 2, 3]
-    crawler1 = JDCrawler(item_ids[1060:1095], scores, 0, "jd1")
-    # crawler2 = JDCrawler(item_ids[1025:1060], scores, 0, "jd2")
-    # crawler3 = JDCrawler(item_ids[732:1025], scores, 249, "jd3")
+    crawler1 = JDCrawler(item_ids[0:200], scores, 29, "jd1")
+    crawler2 = JDCrawler(item_ids[200:400], scores, 175, "jd2")
+    crawler3 = JDCrawler(item_ids[400:600], scores, 197, "jd3")
+    crawler4 = JDCrawler(item_ids[600:800], scores, 0, "jd4")
+    crawler5 = JDCrawler(item_ids[800:1095], scores, 0, "jd5")
     crawler1.start()
-    # crawler2.start()
-    # crawler3.start()
+    crawler2.start()
+    crawler3.start()
+    crawler4.start()
+    crawler5.start()

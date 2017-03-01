@@ -3070,12 +3070,39 @@ html_str2 = '''
 </html>
 <!--allsort_ok-->'''
 import re
+import json
 re.sub(r'\s{2,}',"item","haha  haha")
 import urllib2
 from bs4 import BeautifulSoup
+
+url = "https://sclub.jd.com/comment/productPageComments.action?productId=%s&score=0&sortType=3&page=0&pageSize=10&callback=fetchJSON_comment98vv37464"
+def get_index(i_id):
+    try:
+        req = urllib2.urlopen(url % i_id)
+    except Exception, e:
+        print e
+        return []
+    origin_encode = req.headers['content-type'].split('charset=')[-1]
+    try:
+        html = req.read().decode(origin_encode).encode("utf-8")
+    except Exception, e:
+        print e
+    groups = re.findall("(?<=fetchJSON_comment98vv37464\().*(?=\);)", html)
+    if len(groups) > 0:
+        o = json.loads(groups[0], encoding="utf-8")
+        return "%d,%d,%d,%d,%d,%d" % (o["maxPage"], o["productCommentSummary"]["afterCount"],
+                                o["productCommentSummary"]["commentCount"],
+                                o["productCommentSummary"]["goodCount"],
+                                o["productCommentSummary"]["generalCount"],
+                                o["productCommentSummary"]["poorCount"])
+
 # groups = re.findall(r'(?<=<a href="//)list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+(&\\S*=\\S*)*(?=" class="cate_detail_con_lk")', html_str)
 groups = re.findall(r'list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+', html_str2)
-items_id = []
+start = False
+u_set = set()
+with open("jd_target.csv", "r") as f:
+    for line in f:
+        u_set.add(line)
 for group in set(groups):
     print group
     req = urllib2.urlopen("http://%s&page=1&sort=sort_commentcount_desc" % group)
@@ -3083,11 +3110,20 @@ for group in set(groups):
     try:
         html = req.read().decode(origin_encode).encode("utf-8")
         soup = BeautifulSoup(html)
-        item_list = soup.select("#plist > ul > li:nth-of-type(1) > div > div.p-img > a")
-        if len(item_list) > 0:
-            urls = re.findall(r"(?<=jd\.com/)[0-9]+(?=\.html)", item_list[0]["href"])
+        item_list = soup.select("#plist > ul > li")
+        pre_str = ""
+        for item in item_list:
+            href = item.select("div > div.p-img > a")[0]["href"]
+            urls = re.findall(r"(?<=jd\.com/)[0-9]+(?=\.html)", href)
             if len(urls) > 0:
-               items_id.append(urls[0])
+                id_str = get_index(urls[0])
+                if id_str != pre_str:
+                    s = "%s,%s\n" % (urls[0], id_str)
+                    if s in u_set:
+                        break
+                    with open("jd_target.csv", "a") as f:
+                        f.write(s)
+                    print s
+                    pre_str = id_str
     except Exception, e:
         print e
-print items_id
