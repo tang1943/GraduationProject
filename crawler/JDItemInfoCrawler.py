@@ -5,6 +5,7 @@
 import pandas as pd
 import urllib2
 import Queue
+import gc
 import random
 import time
 import re
@@ -41,6 +42,8 @@ class JDItemInfoCrawler(threading.Thread):
                 print time.time() - start_time
                 origin_encode = req.headers['content-type'].split('charset=')[-1]
                 html = req.read().decode(origin_encode).encode("utf-8")
+                req.close()
+                opener.close()
                 if html.strip() == "":
                     raise Exception("get empty html")
                 # soup = BeautifulSoup(html, "html.parser")
@@ -113,11 +116,7 @@ class ProxyManager(threading.Thread):
                 print "========================================"
                 print "proxy remain: %d" % len(proxies)
                 print "========================================"
-            else:
-                print "========================================"
-                print "too less proxies manager exit"
-                print "========================================"
-                break
+            gc.collect()
 
 
 def add_proxy_info(key, is_success):
