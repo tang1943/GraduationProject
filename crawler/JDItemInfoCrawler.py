@@ -24,7 +24,7 @@ class JDItemInfoCrawler(threading.Thread):
         socket.setdefaulttimeout(16)
         self.crawler_name = name
 
-    def db_html_parse(self, item_id):
+    def jd_html_parse(self, item_id):
         url = "https://sclub.jd.com/comment/productPageComments.action?productId=%s&score=0&sortType=3&page=0" \
               "&pageSize=10&callback=fetchJSON_comment98vv37464" % item_id
         while True:
@@ -43,10 +43,9 @@ class JDItemInfoCrawler(threading.Thread):
                 html = req.read().decode(origin_encode).encode("utf-8")
                 if html.strip() == "":
                     raise Exception("get empty html")
-                soup = BeautifulSoup(html, "html.parser")
-
-                if len(soup.select("div#db-nav-movie")) < 1:
-                    raise Exception("enter fake douban website")
+                # soup = BeautifulSoup(html, "html.parser")
+                if "fetchJSON_comment98vv37464" not in html:
+                    raise Exception("enter fake jd return")
                 add_proxy_info(random_proxy, True)
                 groups = re.findall("(?<=fetchJSON_comment98vv37464\().*(?=\);)", html)
                 if len(groups) > 0:
@@ -72,31 +71,24 @@ class JDItemInfoCrawler(threading.Thread):
 
     def run(self):
         while True:
-            item_id = get_resource()
-            if item_id is None:
+            task = get_resource()
+            if task is None:
                 break
+            item_id = task[0]
+            category = task[1]
             print "%s crawler item:%s" % (self.crawler_name, item_id)
-            movie_ids, comment_ids, comments, scores, votes = self.db_html_parse(item_id)
-            df = pd.DataFrame({
-                "id": movie_ids,
-                "cmt_id": comment_ids,
-                "cmt": comments,
-                "score": scores,
-                "vote": votes})
-            save_comments(df)
-            save_complete_record(item_id, len(movie_ids))
-            complete_set.add(item_id)
-            print "%s crawler item%s end with %d items" % (self.crawler_name, item_id, len(movie_ids))
+            id_str = self.jd_html_parse(item_id)
+            save_result(item_id, category, "null" if id_str is None else id_str)
+            print "%s crawler item:%s end" % (self.crawler_name, item_id)
             print "proxy pool size: %d" % len(proxies)
 
 
 url_pool_lock = Lock()
 comment_save_lock = Lock()
-task_end_save_lock = Lock()
+# task_end_save_lock = Lock()
 queue = Queue.Queue()
 proxies = {}
 agents = []
-complete_set = set()
 
 
 # 管理代理IP
@@ -153,18 +145,18 @@ def get_resource():
     return r
 
 
-def save_comments(str):
+def save_result(item_id, category, id_str):
     comment_save_lock.acquire()
-    with open("jd_target.csv", "a") as f:
-        f.write(str)
+    with open("../data/crawler/jd_target.csv", "a") as f:
+        f.write("%s,%s,%s\n" % (category, item_id, id_str))
     comment_save_lock.release()
 
 
-def save_complete_record(complete_url):
-    task_end_save_lock.acquire()
-    with open("jd_url_complete.csv", "a") as complete_file:
-        complete_file.write("%s\n" % complete_url)
-    task_end_save_lock.release()
+# def save_complete_record(complete_url):
+#     task_end_save_lock.acquire()
+#     with open("jd_url_complete.csv", "a") as complete_file:
+#         complete_file.write("%s\n" % complete_url)
+#     task_end_save_lock.release()
 
 if __name__ == "__main__":
     unique_proxies = set()
@@ -176,14 +168,12 @@ if __name__ == "__main__":
     with open("user_agent", "r") as agent_file:
         for line in agent_file:
             agents.append(line.strip())
-    with open("jd_url_complete.csv", "r") as end_file:
-        for line in end_file:
-            complete_set.add(int(line.split(",")[0]))
-    all_items = open("../data/crawler/JDCategoryURL.csv", "r")
-    for u in all_items:
-        if u not in complete_set:
-            queue.put(u)
-    for i in range(32):
+    all_items = open("../data/crawler/JDItemId.csv", "r")
+    for line in all_items:
+        items = line.strip().split(",")
+        if len(items) > 1:
+            queue.put((items[1], items[0]))
+    for i in range(3):
         crawler = JDItemInfoCrawler("jd" + str(i))
         crawler.start()
     ProxyManager(60).start()

@@ -109,13 +109,12 @@ class DBMovieCrawler(threading.Thread):
                 break
             print "%s crawler item:%s" % (self.crawler_name, item_id)
             movie_ids, comment_ids, comments, scores, votes = self.db_html_parse(item_id)
-            df = pd.DataFrame({
+            save_comments({
                 "id": movie_ids,
                 "cmt_id": comment_ids,
                 "cmt": comments,
                 "score": scores,
                 "vote": votes})
-            save_comments(df)
             save_complete_record(item_id, len(movie_ids))
             complete_set.add(item_id)
             print "%s crawler item%s end with %d items" % (self.crawler_name, item_id, len(movie_ids))
@@ -128,7 +127,6 @@ task_end_save_lock = Lock()
 queue = Queue.Queue()
 proxies = {}
 agents = []
-complete_set = set()
 
 
 # 管理代理IP
@@ -185,9 +183,11 @@ def get_resource():
     return r
 
 
-def save_comments(df):
+def save_comments(data):
+    df = pd.DataFrame(data)
     comment_save_lock.acquire()
-    df.to_csv('../data/movie_comments.csv', mode="a", index=False, encoding='utf-8', header=False)
+    with open("movie_comments.csv", "a") as output_file:
+        df.to_csv(output_file, mode="a", index=False, encoding='utf-8', header=False)
     comment_save_lock.release()
 
 
@@ -207,10 +207,11 @@ if __name__ == "__main__":
     with open("user_agent", "r") as agent_file:
         for line in agent_file:
             agents.append(line.strip())
+    complete_set = set()
     with open("douban_complete.csv", "r") as end_file:
         for line in end_file:
             complete_set.add(int(line.split(",")[0]))
-    all_items = pd.read_csv("../data/movies_target.csv", encoding="utf-8")
+    all_items = pd.read_csv("movies_target.csv", encoding="utf-8")
     for m_id in all_items.get("id"):
         if m_id not in complete_set:
             queue.put(m_id)
