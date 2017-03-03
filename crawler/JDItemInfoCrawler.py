@@ -41,11 +41,12 @@ class JDItemInfoCrawler(threading.Thread):
                 print "%s load complete:%s" % (self.crawler_name, url)
                 print time.time() - start_time
                 origin_encode = req.headers['content-type'].split('charset=')[-1]
-                html = req.read().decode(origin_encode).encode("utf-8")
+                html = req.read()
                 req.close()
                 opener.close()
                 if html.strip() == "":
                     raise Exception("get empty html")
+                html = html.decode(origin_encode, "ignore").encode("utf-8")
                 # soup = BeautifulSoup(html, "html.parser")
                 if "fetchJSON_comment98vv37464" not in html:
                     raise Exception("enter fake jd return")
@@ -146,16 +147,10 @@ def get_resource():
 
 def save_result(item_id, category, id_str):
     comment_save_lock.acquire()
-    with open("../data/crawler/jd_target.csv", "a") as f:
+    with open("../data/crawler/jd_target_origin.csv", "a") as f:
         f.write("%s,%s,%s\n" % (category, item_id, id_str))
     comment_save_lock.release()
 
-
-# def save_complete_record(complete_url):
-#     task_end_save_lock.acquire()
-#     with open("jd_url_complete.csv", "a") as complete_file:
-#         complete_file.write("%s\n" % complete_url)
-#     task_end_save_lock.release()
 
 if __name__ == "__main__":
     unique_proxies = set()
@@ -167,15 +162,20 @@ if __name__ == "__main__":
     with open("user_agent", "r") as agent_file:
         for line in agent_file:
             agents.append(line.strip())
+    used_set = set()
+    with open("../data/crawler/jd_target_origin.csv", "r") as f:
+        for line in f:
+            used_set.add(line.split(",")[1])
     all_items = open("../data/crawler/JDItemId.csv", "r")
     for line in all_items:
         items = line.strip().split(",")
-        if len(items) > 1:
+        if len(items) > 1 and items[1] not in used_set:
             queue.put((items[1], items[0]))
-    for i in range(3):
+    for i in range(488):
         crawler = JDItemInfoCrawler("jd" + str(i))
         crawler.start()
     ProxyManager(60).start()
+
 
 
 

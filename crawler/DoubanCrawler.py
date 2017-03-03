@@ -14,15 +14,24 @@ import socket
 class DBMovieCrawler(threading.Thread):
 
     crawler_name = "default"
+    opener = None
+    random_proxy = None
 
     def __init__(self, name):
         super(DBMovieCrawler, self).__init__()
         socket.setdefaulttimeout(16)
         self.crawler_name = name
+        self.change_proxy()
+
+    def change_proxy(self):
+        random_user_agent = random.choice(agents)
+        self.random_proxy = get_proxy()
+        proxy_support = urllib2.ProxyHandler({"https": self.random_proxy})
+        # proxy_support = urllib2.ProxyHandler()
+        self.opener = urllib2.build_opener(proxy_support)
+        self.opener.addheaders = [('User-Agent', random_user_agent)]
 
     def db_html_parse(self, item_id):
-        random_user_agent = random.choice(agents)
-        random_proxy = get_proxy()
         base_url = "https://movie.douban.com/subject/%s/comments" % item_id
         url = "?sort=new_score"
         comments = []
@@ -34,46 +43,42 @@ class DBMovieCrawler(threading.Thread):
         retry = 0
         while has_next:
             try:
-                proxy_support = urllib2.ProxyHandler({"https": random_proxy})
-                opener = urllib2.build_opener(proxy_support)
-                opener.addheaders = [('User-Agent', random_user_agent)]
-                # urllib2.install_opener(opener)
                 start_time = time.time()
                 print "%s:start open web page..." % self.crawler_name
-                req = opener.open(base_url + url, None, 16)
+                req = self.opener.open(base_url + url, None, 16)
                 print "%s load complete:%s%s" % (self.crawler_name, base_url, url)
                 print time.time() - start_time
                 origin_encode = req.headers['content-type'].split('charset=')[-1]
-                html = req.read().decode(origin_encode).encode("utf-8")
+                html = req.read()
                 req.close()
-                opener.close()
+                self.opener.close()
                 if html.strip() == "":
                     raise Exception("get empty html")
+                html = html.decode(origin_encode, "ignore").encode("utf-8")
                 soup = BeautifulSoup(html, "html.parser")
                 if len(soup.select("div#db-nav-movie")) < 1:
                     raise Exception("enter fake douban website")
                 retry = 0
-                add_proxy_info(random_proxy, True)
+                add_proxy_info(self.random_proxy, True)
             except urllib2.HTTPError, e:
                 if e.code == 403 and retry >= 2:
                     print "%s get the end:%s%s" % (self.crawler_name, base_url, url)
                     has_next = False
                 else:
-                    random_user_agent = random.choice(agents)
-                    random_proxy = get_proxy()
+                    self.change_proxy()
                     retry += 1
                 continue
             except urllib2.URLError, e:
                 print "%s:url error %s" % (self.crawler_name, str(e))
                 print "%s:change proxy ip" % self.crawler_name
                 if e.reason.errno != 10060 and e.reason.errno != 110:
-                    add_proxy_info(random_proxy, False)
-                    random_proxy = get_proxy()
+                    add_proxy_info(self.random_proxy, False)
+                self.change_proxy()
                 continue
             except Exception, e:
                 print "%s:other error %s" % (self.crawler_name, str(e))
-                add_proxy_info(random_proxy, False)
-                random_proxy = get_proxy()
+                add_proxy_info(self.random_proxy, False)
+                self.change_proxy()
                 continue
             body_divs = soup.select("div.article")
             if len(body_divs) > 0:
@@ -102,7 +107,6 @@ class DBMovieCrawler(threading.Thread):
                     has_next = False
             else:
                 has_next = False
-            time.sleep(random.randint(2, 8) / 10.0)
         return movie_ids, data_ids, comments, scores, votes
 
     def run(self):
@@ -155,7 +159,6 @@ class ProxyManager(threading.Thread):
                 print "proxy remain: %d" % len(proxies)
                 print "========================================"
             gc.collect()
-
 
 
 def add_proxy_info(key, is_success):
@@ -215,7 +218,7 @@ if __name__ == "__main__":
     for m_id in all_items.get("id"):
         if m_id not in complete_set:
             queue.put(m_id)
-    for i in range(512):
+    for i in range(60):
         crawler = DBMovieCrawler("db" + str(i))
         crawler.start()
     ProxyManager(120).start()

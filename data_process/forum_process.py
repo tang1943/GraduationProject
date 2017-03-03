@@ -18,15 +18,29 @@ def function():
     show_plot.draw_director_tree(node_map, pairs)
 
 
-    # queue = Queue.Queue()
-    # queue.put(0)
-    # items[0] = {}
-    # while not queue.empty():
-    #     father_id = queue.get()
-    #     father = tree
-    #     for key, item in items.items():
-    #         if item['up'] == father_id:
-
+def function2():
+    # id, up, type, name, category, thread, post
+    record = 0
+    data_frame = pd.read_csv("../data/forum.csv", encoding="utf-8")
+    f = set([0])
+    level = 0
+    data = {}
+    while record < len(data_frame):
+        son = set()
+        for _, row in data_frame.iterrows():
+            if row["up"] in f:
+                data[row["name"]] = level
+                son.add(row["id"])
+                record += 1
+        level += 1
+        f = son
+    stat = [[], [], [], []]
+    for key in data:
+        stat[data[key]].append(key)
+    print len(stat[0])
+    print len(stat[1])
+    print len(stat[2])
+    print len(stat[3])
 
 if __name__ =="__main__":
-    function()
+    function2()

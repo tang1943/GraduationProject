@@ -3077,9 +3077,9 @@ import urllib2
 from bs4 import BeautifulSoup
 
 # 寻找类目url
-# groups = re.findall(r'list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+', html_str2)
-# for group in set(groups):
-#     print group
+groups = re.findall(r'list\.jd\.com/list\.html\?cat=[0-9]+,[0-9]+,[0-9]+', html_str2)
+for group in set(groups):
+    print group
 fail = []
 with open("../data/crawler/JDCategoryURL.csv", "r") as jd_c_file:
     for c_url in jd_c_file:
