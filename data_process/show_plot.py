@@ -2,9 +2,7 @@
 import pygraphviz as pgv
 
 
-def draw_director_tree(node_map, pairs):
-
-    print "end"
+def draw_director_tree(node_map, pairs, save_path):
     tree_graph = pgv.AGraph(directed=True, strict=True, encoding='UTF-8')
     tree_graph.node_attr['style'] = 'filled'
     tree_graph.node_attr['shape'] = 'square'
@@ -17,4 +15,4 @@ def draw_director_tree(node_map, pairs):
     # print tree_graph.string()  # print dot file to standard output
     # tree_graph.write('director_tree.dot')
     tree_graph.layout('dot')  # layout with dot
-    tree_graph.draw('director_tree.png')
+    tree_graph.draw(save_path)

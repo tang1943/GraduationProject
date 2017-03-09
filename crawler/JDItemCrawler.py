@@ -33,6 +33,7 @@ class JDItemCrawler(threading.Thread):
         random_user_agent = random.choice(agents)
         self.random_proxy = get_proxy()
         proxy_support = urllib2.ProxyHandler({"https": self.random_proxy})
+        # proxy_support = urllib2.ProxyHandler()
         self.opener = urllib2.build_opener(proxy_support)
         self.opener.addheaders = [('User-Agent', random_user_agent)]
 
@@ -68,6 +69,8 @@ class JDItemCrawler(threading.Thread):
                                 json_item = json.loads(group, encoding="utf-8")
                                 if json_item["comments"] is not None:
                                     for comment in json_item["comments"]:
+                                        if "content" not in comment:
+                                            continue
                                         father_ids.append(item_id)
                                         ids.append(comment["id"])
                                         comments_storage.append(comment["content"].strip())
@@ -225,10 +228,10 @@ if __name__ == "__main__":
         items = line.strip().split(",")
         if len(items) > 7 and items[1] not in used_set:
             queue.put((items[1], items[-3], items[-2], items[-1]))
-    for i in range(512):
+    for i in range(1):
         crawler = JDItemCrawler("jd" + str(i))
         crawler.start()
-    ProxyManager(120).start()
+    # ProxyManager(120).start()
 
 
 

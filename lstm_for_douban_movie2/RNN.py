@@ -18,6 +18,7 @@ class RNN:
     _minimize_loss = None
     _predict = None
     _correct_prediction = None
+    _rate = None
 
     def __init__(self, vocab_size=4, word_dimension=32, class_num=2, unit_num=128, layer_num=4):
         self.vocab_size = vocab_size
@@ -73,6 +74,10 @@ class RNN:
 
     def train(self):
         _predict = self.__outs
+        tf.argmax(self.__outs, 1)
+        tf.argmax(self.outs, 1)
+        self._rate = tf.reduce_sum(tf.cast(tf.equal(tf.argmax(self.__outs, axis=1), tf.argmax(self.outs, axis=1)), "float32"))
+
         with tf.name_scope('loss_train'):
             # 确认正确
             _loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=_predict, labels=self.outs))
@@ -98,7 +103,7 @@ class RNN:
     def load_model(self):
         # noinspection PyBroadException
         try:
-            tf.train.Saver().restore(self.sess, "../model/lstm_douban_movie1/model.sd")
+            tf.train.Saver().restore(self.sess, "../model/lstm_douban_movie2/model.sd")
         except Exception, ex:
             print ex
             self.sess.run(tf.global_variables_initializer())
@@ -109,15 +114,16 @@ class RNN:
         print saver_def.filename_tensor_name
         print saver_def.restore_op_name
 
-        saver.save(self.sess, "../model/lstm_douban_movie1/model.sd")
-        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie1", "model.proto", as_text=False)
-        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie1", "model.txt", as_text=True)
+        saver.save(self.sess, "../model/lstm_douban_movie2/model.sd")
+        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie2", "model.proto", as_text=False)
+        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie2", "model.txt", as_text=True)
 
     def train_writer(self):
         return tf.summary.FileWriter('../log/douban_movie2', self.sess.graph)
 
     def train_min_data(self, min_inputs_set, min_labels_set, keep_prob=0.4, learning_rate=0.08):
         loss_total = 0
+        right_count = 0
         for key in min_labels_set:
             _, loss = self.sess.run([self._minimize_loss, self._loss],
                                     feed_dict={
@@ -126,15 +132,21 @@ class RNN:
                                         self.keep_prob: keep_prob,
                                         self.learning_rate: learning_rate
                                     })
+
+            right_count += self.sess.run(self._rate, feed_dict={
+                              self.inputs: min_inputs_set[key],
+                              self.outs: min_labels_set[key],
+                              self.keep_prob: 1.0
+                          })
             loss_total += loss
-        return loss_total
+        return loss_total, right_count
 
     def test_min_data(self, min_inputs_set, min_labels_set):
         global data
         loss_total = 0
         confusion_matrix = np.zeros((self.class_num, self.class_num))
         right_count = 0
-        with open("../log/error_douban1.list", "w") as error_output:
+        with open("../log/error_douban2.list", "w") as error_output:
             for key in min_labels_set:
                 input_data = min_inputs_set[key]
                 input_label = min_labels_set[key]
@@ -191,10 +203,11 @@ def train_model():
     # rnn_obj.save_model()
     train_loss = []
     valid_loss = []
+    train_right_rates = []
     valid_right_rates = []
     plt.ion()
 
-    for step in range(0, 10):
+    for step in range(0, 3):
         start_index = 0
         # 打乱数据顺序
         np.random.shuffle(indexes)
@@ -206,17 +219,22 @@ def train_model():
             total_word, batch_data, batch_labels = group_by_str_length(train_inputs, train_labels, indexes[start_index:end_index])
             print "-------train data------------"
             pre_time = time.time()
-            loss = rnn_obj.train_min_data(batch_data, batch_labels) / (end_index - start_index)
+            loss_count, r_count = rnn_obj.train_min_data(batch_data, batch_labels)
+            data_count = end_index - start_index
+            loss = loss_count * 1.0 / data_count
+            right_rate = r_count * 1.0 / data_count
             train_loss.append(loss)
-            print "train loss:%s" % str(loss)
+            train_right_rates.append(right_rate)
+            print "train loss:%.6f" % loss
             print "train speed:%.2f/s:" % (total_word * 1.0 / (time.time() - pre_time))
+            print "train right rate:%.4f" % right_rate
             print "-------valid data------------"
             _, valid_input_set, valid_label_set = group_by_str_length(valid_inputs, valid_labels, range(valid_length))
             valid_stat_mat, valid_total_loss, valid_right_count = rnn_obj.test_min_data(valid_input_set, valid_label_set)
             valid_avg_loss = valid_total_loss / valid_length
-            valid_right_rate = valid_right_count * 100.0 / valid_length
+            valid_right_rate = valid_right_count * 1.0 / valid_length
             print "valid loss:%.4f" % valid_avg_loss
-            print "right rate:%.4f" % valid_right_rate
+            print "valid right rate:%.4f" % valid_right_rate
             print "confusion_matrix:"
             print valid_stat_mat
 

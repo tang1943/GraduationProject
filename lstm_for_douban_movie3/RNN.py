@@ -98,7 +98,7 @@ class RNN:
     def load_model(self):
         # noinspection PyBroadException
         try:
-            tf.train.Saver().restore(self.sess, "../model/lstm_douban_movie1/model.sd")
+            tf.train.Saver().restore(self.sess, "../model/lstm_douban_movie3/model.sd")
         except Exception, ex:
             print ex
             self.sess.run(tf.global_variables_initializer())
@@ -109,12 +109,12 @@ class RNN:
         print saver_def.filename_tensor_name
         print saver_def.restore_op_name
 
-        saver.save(self.sess, "../model/lstm_douban_movie1/model.sd")
-        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie1", "model.proto", as_text=False)
-        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie1", "model.txt", as_text=True)
+        saver.save(self.sess, "../model/lstm_douban_movie3/model.sd")
+        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie3", "model.proto", as_text=False)
+        tf.train.write_graph(self.sess.graph_def, "../model/lstm_douban_movie3", "model.txt", as_text=True)
 
     def train_writer(self):
-        return tf.summary.FileWriter('../log/douban_movie2', self.sess.graph)
+        return tf.summary.FileWriter('../log/douban_movie3', self.sess.graph)
 
     def train_min_data(self, min_inputs_set, min_labels_set, keep_prob=0.4, learning_rate=0.08):
         loss_total = 0
@@ -134,7 +134,7 @@ class RNN:
         loss_total = 0
         confusion_matrix = np.zeros((self.class_num, self.class_num))
         right_count = 0
-        with open("../log/error_douban1.list", "w") as error_output:
+        with open("../log/error_douban3.list", "w") as error_output:
             for key in min_labels_set:
                 input_data = min_inputs_set[key]
                 input_label = min_labels_set[key]
@@ -194,7 +194,7 @@ def train_model():
     valid_right_rates = []
     plt.ion()
 
-    for step in range(0, 10):
+    for step in range(0, 3):
         start_index = 0
         # 打乱数据顺序
         np.random.shuffle(indexes)

@@ -26,7 +26,7 @@ class Data:
     valid_input_data = []
     valid_label_data = []
 
-    def __init__(self, input_path, out_path="../data/lstm_data/douban_movie1/"):
+    def __init__(self, input_path, out_path="../data/lstm_data/douban_movie3/"):
         self.save_dir = out_path
         self.dict_complete = self.load_dict()
         self.data_complete = self.load_data()
@@ -46,10 +46,9 @@ class Data:
             self.get_train_valid_test_data(input_data, label_data)
             self.save_dict()
 
-    # score_map = [0, 0, 0, 1, 2, 2]
-
     def line_mapping(self, cmt, score):
-        # score = self.score_map[score]
+        if 1 < score < 5:
+            return
         data_array = []
         if self.dict_complete:
             class_id = self.class2Id[score]
